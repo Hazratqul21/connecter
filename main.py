@@ -19,9 +19,13 @@ logger = logging.getLogger("middleware")
 
 app = FastAPI()
 
-# --- 2. SOZLAMALAR ---
+# --- 2. SOZLAMALAR (SIZNING MA'LUMOTLARINGIZ BILAN TAYYORLANDI) ---
 # HelpDeskEddy Webhook manzili
 HELPDESK_URL = "https://qwatt.helpdeskeddy.com/api/v2/telephony/calls/DyJmRuiZTsqsXyRsegJR"
+
+# Binotel API Kalitlari (Siz yuborgan ma'lumotlar)
+BINOTEL_API_KEY = "70206a-84faf4d"
+BINOTEL_API_SECRET = "e4a051-9d3c02-7cdb1a-a5d224-f8406eda"
 
 # --- 3. YORDAMCHI FUNKSIYA: JADVAL CHIZISH ---
 def log_as_table(title: str, data: dict):
@@ -58,6 +62,7 @@ async def binotel_handler(request: Request):
                 <p>Binotel va HelpDeskEddy o'rtasidagi ko'prik faol.</p>
                 <div style="background: #f1f1f1; padding: 20px; border-radius: 10px; display: inline-block; text-align: left;">
                     <strong>Status:</strong> Online<br>
+                    <strong>API Key:</strong> {BINOTEL_API_KEY[:4]}****<br>
                     <strong>Server Time:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}<br>
                     <strong>Mode:</strong> Production
                 </div>
@@ -129,7 +134,7 @@ async def binotel_handler(request: Request):
         log_as_table("2. HELPDESKEDDY UCHUN TAYYORLANGAN PACKET", payload)
 
         # 4. Yuborish (Execution)
-        logger.info("🚀 HelpDeskEddy-ga yuborilmoqda...")
+        logger.info(f"🚀 HelpDeskEddy-ga ({HELPDESK_URL[-20:]}...) yuborilmoqda...")
         response = requests.post(HELPDESK_URL, json=payload, timeout=10)
         
         process_time = time.time() - start_time
