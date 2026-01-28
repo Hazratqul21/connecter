@@ -22,29 +22,53 @@ BINOTEL_API_KEY = "70206a-84faf4d"
 BINOTEL_API_SECRET = "e4a051-9d3c02-7cdb1a-a5d224-f8406eda"
 HELPDESKEDDY_URL = "https://qwatt.helpdeskeddy.com/api/v2/telephony/calls/DyJmRuiZTsqsXyRsegJR"
 
-@app.get("/webhook", response_class=HTMLResponse)
-async def webhook_status():
+# In-memory storage for the last received payload (for debugging)
+last_webhook_payload = {"status": "No data received yet"}
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
     """
-    Status page for the middleware.
+    Root endpoint to show system status and last received webhook.
     """
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    payload_str = json.dumps(last_webhook_payload, indent=2, ensure_ascii=False)
+    
     html_content = f"""
     <html>
         <head>
-            <title>Middleware Status</title>
+            <title>Connecter Middleware</title>
             <style>
-                body {{ font-family: Arial, sans-serif; text-align: center; padding-top: 50px; }}
-                .status {{ font-size: 24px; color: green; font-weight: bold; }}
-                .time {{ font-size: 18px; color: #555; margin-top: 10px; }}
+                body {{ font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }}
+                .status {{ font-size: 24px; color: green; font-weight: bold; margin-bottom: 20px; }}
+                .info {{ background: #f0f0f0; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
+                pre {{ background: #333; color: #fff; padding: 15px; border-radius: 5px; overflow-x: auto; }}
+                .refresh {{ margin-top: 20px; }}
             </style>
         </head>
         <body>
             <div class="status">System is Operational</div>
-            <div class="time">Server Time: {current_time}</div>
+            <div class="info">
+                <p><strong>Server Time:</strong> {current_time}</p>
+                <p><strong>Endpoint:</strong> POST /webhook</p>
+            </div>
+            
+            <h3>Last Received Webhook Payload:</h3>
+            <pre>{payload_str}</pre>
+            
+            <div class="refresh">
+                <button onclick="location.reload()">Refresh Data</button>
+            </div>
         </body>
     </html>
     """
     return html_content
+
+@app.get("/webhook", response_class=HTMLResponse)
+async def webhook_status():
+    """
+    Redirects to root or shows status.
+    """
+    return await root()
 
 @app.post("/webhook")
 async def webhook_handler(request: Request):
@@ -52,16 +76,26 @@ async def webhook_handler(request: Request):
     Main webhook handler for Binotel events.
     Accepts both JSON and Form Data.
     """
+    global last_webhook_payload
     try:
         # 1. Parse incoming data (Form or JSON)
         content_type = request.headers.get("Content-Type", "")
         payload = {}
         
         if "application/json" in content_type:
-            payload = await request.json()
+            try:
+                payload = await request.json()
+            except Exception:
+                payload = {"error": "Invalid JSON body"}
         else:
             form_data = await request.form()
             payload = dict(form_data)
+
+        # Update last payload for debugging
+        last_webhook_payload = {
+            "received_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "payload": payload
+        }
 
         # 2. Log incoming data using json.dumps for pretty printing in logs
         logger.info(f"Incoming Webhook Payload:\n{json.dumps(payload, indent=2, ensure_ascii=False)}")
@@ -103,6 +137,9 @@ async def webhook_handler(request: Request):
             "recording_url": payload.get("linkToCallRecordInMyBusiness") or payload.get("recordingUrl") or "",
             "timestamp": payload.get("startTime")
         }
+        
+        # Add transformation debugging info
+        last_webhook_payload["transformed_for_hde"] = hde_payload
 
         logger.info(f"Transformed Payload for HelpDeskEddy:\n{json.dumps(hde_payload, indent=2)}")
 
@@ -113,6 +150,10 @@ async def webhook_handler(request: Request):
         # 6. Log response
         logger.info(f"HelpDeskEddy Response Status: {response.status_code}")
         logger.info(f"HelpDeskEddy Response Body: {response.text}")
+        
+        # Add HDE response to debugging
+        last_webhook_payload["hde_response_code"] = response.status_code
+        last_webhook_payload["hde_response_body"] = response.text
 
         return {"status": "processed", "forwarded_to_hde": True, "hde_status": response.status_code}
 
