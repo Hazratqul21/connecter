@@ -3,4 +3,3 @@ uvicorn
 requests
 python-multipart
 pytz
-pytz

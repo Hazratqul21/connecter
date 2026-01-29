@@ -6,6 +6,7 @@ import requests
 from datetime import datetime
 import os
 import sys
+import pytz
 
 # Configure logging
 logging.basicConfig(
@@ -14,6 +15,12 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 logger = logging.getLogger(__name__)
+
+# Timezone Config
+TASHKENT_TZ = pytz.timezone('Asia/Tashkent')
+
+def get_current_time():
+    return datetime.now(TASHKENT_TZ).strftime("%Y-%m-%d %H:%M:%S")
 
 app = FastAPI()
 
@@ -98,12 +105,19 @@ async def webhook_handler(request: Request):
         }
 
         # 2. Log incoming data using json.dumps for pretty printing in logs
+        # MOVED UP: Log everything before filtering!
         logger.info(f"Incoming Webhook Payload:\n{json.dumps(payload, indent=2, ensure_ascii=False)}")
 
-        # 3. Filter: Only process 'apiCallCompleted' (unless it's a test)
+        # 3. Request Analysis
         request_type = payload.get("requestType")
         is_test = payload.get("isTest") == "true"
         
+        # Check for the alternative format user is seeing (Dialing/Popup event?)
+        # Payload: {"staff_id": "1", "phone_number": "...", "pbx_user_id": "..."}
+        if not request_type and "staff_id" in payload and "phone_number" in payload:
+            logger.info("Received Dialing/Popup event (no requestType). Ignoring for now as we need Completed calls.")
+            return {"status": "ignored", "reason": "Dialing event, waiting for apiCallCompleted"}
+
         if request_type != "apiCallCompleted" and not is_test:
             logger.info(f"Ignored requestType: {request_type}")
             return {"status": "ignored", "reason": "Not apiCallCompleted"}
@@ -158,7 +172,7 @@ async def webhook_handler(request: Request):
         if "ОТВЕТ" in disposition_upper:
             status = "completed"
             
-        # Timestamp Formatting Fix: Convert Unix to YYYY-MM-DD HH:MM:SS
+        # Timestamp Formatting Fix: Convert Unix to YYYY-MM-DD HH:MM:SS (Tashkent Time)
         formatted_start_time = ""
         if start_time_raw:
             try:
@@ -168,18 +182,21 @@ async def webhook_handler(request: Request):
                 else:
                     # Assume unix timestamp
                     ts = int(start_time_raw)
-                    formatted_start_time = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+                    # Convert UTC timestamp to Tashkent time
+                    dt_utc = datetime.utcfromtimestamp(ts).replace(tzinfo=pytz.utc)
+                    dt_tashkent = dt_utc.astimezone(TASHKENT_TZ)
+                    formatted_start_time = dt_tashkent.strftime("%Y-%m-%d %H:%M:%S")
             except Exception as e:
                 logger.warning(f"Failed to convert timestamp {start_time_raw}: {e}")
-                formatted_start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                formatted_start_time = get_current_time()
         else:
-            formatted_start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            formatted_start_time = get_current_time()
 
         # Transform
         hde_payload = {
             "action": "create_call", # REQUIRED by HDE
             "uuid": general_call_id,
-            "direction": call_type, # REQUIRED (renamed from 'type')
+            "direction": call_type, # REQUIRED
             "phone": external_number,
             "extension": internal_number,
             "status": status,
