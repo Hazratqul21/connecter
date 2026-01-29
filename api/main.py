@@ -100,16 +100,15 @@ async def webhook_handler(request: Request):
         # 2. Log incoming data using json.dumps for pretty printing in logs
         logger.info(f"Incoming Webhook Payload:\n{json.dumps(payload, indent=2, ensure_ascii=False)}")
 
-        # 3. Filter: Only process 'apiCallCompleted'
+        # 3. Filter: Only process 'apiCallCompleted' (unless it's a test)
         request_type = payload.get("requestType")
-        if request_type != "apiCallCompleted":
+        is_test = payload.get("isTest") == "true"
+        
+        if request_type != "apiCallCompleted" and not is_test:
             logger.info(f"Ignored requestType: {request_type}")
             return {"status": "ignored", "reason": "Not apiCallCompleted"}
 
         # 4. Transform data for HelpDeskEddy
-        # Binotel sends data as nested form keys: callDetails[generalCallID], callDetails[externalNumber], etc.
-        # We need to extract them safely.
-        
         def get_binotel_field(data, key):
             """
             Helper to find values either in flat format (key) 
@@ -117,35 +116,28 @@ async def webhook_handler(request: Request):
             """
             if key in data:
                 return data[key]
-            
             nested_key = f"callDetails[{key}]"
             if nested_key in data:
                 return data[nested_key]
-            
             return None
 
         # Extract fields using the helper
-        general_call_id = get_binotel_field(payload, "generalCallID")
-        # Fallback: if generalCallID is not found, try just callID
-        if not general_call_id:
+        general_call_id = get_binotel_field(payload, "generalCallID") or "unknown_id"
+        if not general_call_id or general_call_id == "unknown_id":
              general_call_id = get_binotel_field(payload, "callID")
 
         external_number = get_binotel_field(payload, "externalNumber")
         internal_number = get_binotel_field(payload, "internalNumber")
-        # 'billsec' is duration
         billsec = get_binotel_field(payload, "billsec")
-        start_time = get_binotel_field(payload, "startTime")
+        start_time_raw = get_binotel_field(payload, "startTime")
         disposition = get_binotel_field(payload, "disposition")
         
         # Link to record
         link_to_record = get_binotel_field(payload, "linkToCallRecordInMyBusiness")
-        # Sometimes 'recordingUrl' might be used
         if not link_to_record:
             link_to_record = get_binotel_field(payload, "recordingUrl")
 
         # Determine call type (inbound/outbound)
-        # Check 'direction' (incoming/outgoing) OR 'callType' (0=inbound, 1=outbound)
-        # Note: In form data, these might also be nested or flat.
         direction_raw = payload.get("direction", "") 
         call_type_value = get_binotel_field(payload, "callType")
         
@@ -154,19 +146,32 @@ async def webhook_handler(request: Request):
             call_type = "outbound"
 
         # Correct mapping of status
-        # Binotel 'disposition' often holds values like 'ANSWER', 'NO ANSWER', 'BUSY'
         disposition_upper = str(disposition).upper() if disposition else ""
         
         status = "missed" # Default
-        # CHECK logic: if disposition is ANSWER or billsec > 0
         if disposition_upper == "ANSWER":
              status = "completed"
         elif billsec and str(billsec).isdigit() and int(billsec) > 0:
              status = "completed"
-        
-        # Russian/Cyrillic checks if needed (example had 'ОТВЕТ')
         if "ОТВЕТ" in disposition_upper:
             status = "completed"
+            
+        # Timestamp Formatting Fix: Convert Unix to YYYY-MM-DD HH:MM:SS
+        formatted_start_time = ""
+        if start_time_raw:
+            try:
+                # Check if it's already formatted
+                if "-" in str(start_time_raw) and ":" in str(start_time_raw):
+                    formatted_start_time = str(start_time_raw)
+                else:
+                    # Assume unix timestamp
+                    ts = int(start_time_raw)
+                    formatted_start_time = datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception as e:
+                logger.warning(f"Failed to convert timestamp {start_time_raw}: {e}")
+                formatted_start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            formatted_start_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Transform
         hde_payload = {
@@ -177,7 +182,7 @@ async def webhook_handler(request: Request):
             "status": status,
             "duration": billsec,
             "recording_url": link_to_record or "",
-            "timestamp": start_time
+            "timestamp": formatted_start_time
         }
         
         # Add transformation debugging info
@@ -186,7 +191,6 @@ async def webhook_handler(request: Request):
         logger.info(f"Transformed Payload for HelpDeskEddy:\n{json.dumps(hde_payload, indent=2)}")
 
         # 5. Send to HelpDeskEddy
-        # Using requests to send POST
         response = requests.post(HELPDESKEDDY_URL, json=hde_payload)
         
         # 6. Log response
@@ -197,11 +201,52 @@ async def webhook_handler(request: Request):
         last_webhook_payload["hde_response_code"] = response.status_code
         last_webhook_payload["hde_response_body"] = response.text
 
-        return {"status": "processed", "forwarded_to_hde": True, "hde_status": response.status_code}
+        return {"status": "processed", "forwarded_to_hde": True, "hde_status": response.status_code, "hde_res": response.text}
 
     except Exception as e:
         logger.error(f"Error processing webhook: {str(e)}", exc_info=True)
         return JSONResponse(status_code=500, content={"detail": "Internal Server Error", "error": str(e)})
+
+@app.get("/simulate", response_class=HTMLResponse)
+async def simulate_call():
+    """
+    DEBUG TOOL: Simulates a call request to HelpDeskEddy.
+    Use this to verify if the connection to HelpDeskEddy works,
+    independent of Binotel.
+    """
+    try:
+        # Create a dummy payload mimicking what we extracted
+        dummy_hde_payload = {
+            "uuid": f"test-{int(datetime.now().timestamp())}",
+            "type": "inbound",
+            "phone": "998901234567", # Test phone
+            "extension": "903", # Using 903 (Hasan) as seen in your screenshot
+            "status": "completed",
+            "duration": "120",
+            "recording_url": "https://example.com/test_record.mp3",
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        logger.info("Running simulation...")
+        response = requests.post(HELPDESKEDDY_URL, json=dummy_hde_payload)
+        
+        return f"""
+        <html>
+            <body style="font-family: monospace; padding: 20px;">
+                <h1>Simulation Result</h1>
+                <p><strong>Sent Payload:</strong></p>
+                <pre>{json.dumps(dummy_hde_payload, indent=2)}</pre>
+                <hr>
+                <p><strong>HelpDeskEddy Response ({response.status_code}):</strong></p>
+                <pre>{response.text}</pre>
+                <hr>
+                <p>If the response code is 200, check HelpDeskEddy tickets for a call from 998901234567.</p>
+                <button onclick="window.history.back()">Go Back</button>
+            </body>
+        </html>
+        """
+    except Exception as e:
+        return f"<h1>Error in simulation</h1><p>{str(e)}</p>"
 
 # Vercel entry point
 # This is often needed for Vercel if it looks for an 'app' variable in the module

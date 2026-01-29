@@ -5,6 +5,10 @@
       "destination": "/api/main.py"
     },
     {
+      "source": "/simulate",
+      "destination": "/api/main.py"
+    },
+    {
       "source": "/(.*)",
       "destination": "/api/main.py"
     }
