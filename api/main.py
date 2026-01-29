@@ -175,8 +175,9 @@ async def webhook_handler(request: Request):
 
         # Transform
         hde_payload = {
+            "action": "create_call", # REQUIRED by HDE
             "uuid": general_call_id,
-            "type": call_type,
+            "direction": call_type, # REQUIRED (renamed from 'type')
             "phone": external_number,
             "extension": internal_number,
             "status": status,
@@ -191,7 +192,8 @@ async def webhook_handler(request: Request):
         logger.info(f"Transformed Payload for HelpDeskEddy:\n{json.dumps(hde_payload, indent=2)}")
 
         # 5. Send to HelpDeskEddy
-        response = requests.post(HELPDESKEDDY_URL, json=hde_payload)
+        # IMPORTANT: Send as Form Data (data=...), NOT JSON
+        response = requests.post(HELPDESKEDDY_URL, data=hde_payload)
         
         # 6. Log response
         logger.info(f"HelpDeskEddy Response Status: {response.status_code}")
@@ -217,10 +219,11 @@ async def simulate_call():
     try:
         # Create a dummy payload mimicking what we extracted
         dummy_hde_payload = {
+            "action": "create_call",
             "uuid": f"test-{int(datetime.now().timestamp())}",
-            "type": "inbound",
+            "direction": "incoming",
             "phone": "998901234567", # Test phone
-            "extension": "903", # Using 903 (Hasan) as seen in your screenshot
+            "extension": "903", # Using 903 (Hasan)
             "status": "completed",
             "duration": "120",
             "recording_url": "https://example.com/test_record.mp3",
@@ -228,7 +231,8 @@ async def simulate_call():
         }
         
         logger.info("Running simulation...")
-        response = requests.post(HELPDESKEDDY_URL, json=dummy_hde_payload)
+        # IMPORTANT: Send as Form Data
+        response = requests.post(HELPDESKEDDY_URL, data=dummy_hde_payload)
         
         return f"""
         <html>
