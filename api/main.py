@@ -107,35 +107,77 @@ async def webhook_handler(request: Request):
             return {"status": "ignored", "reason": "Not apiCallCompleted"}
 
         # 4. Transform data for HelpDeskEddy
-        # Mapping logic based on Binotel common fields and user requirements
+        # Binotel sends data as nested form keys: callDetails[generalCallID], callDetails[externalNumber], etc.
+        # We need to extract them safely.
         
+        def get_binotel_field(data, key):
+            """
+            Helper to find values either in flat format (key) 
+            or nested format (callDetails[key]).
+            """
+            if key in data:
+                return data[key]
+            
+            nested_key = f"callDetails[{key}]"
+            if nested_key in data:
+                return data[nested_key]
+            
+            return None
+
+        # Extract fields using the helper
+        general_call_id = get_binotel_field(payload, "generalCallID")
+        # Fallback: if generalCallID is not found, try just callID
+        if not general_call_id:
+             general_call_id = get_binotel_field(payload, "callID")
+
+        external_number = get_binotel_field(payload, "externalNumber")
+        internal_number = get_binotel_field(payload, "internalNumber")
+        # 'billsec' is duration
+        billsec = get_binotel_field(payload, "billsec")
+        start_time = get_binotel_field(payload, "startTime")
+        disposition = get_binotel_field(payload, "disposition")
+        
+        # Link to record
+        link_to_record = get_binotel_field(payload, "linkToCallRecordInMyBusiness")
+        # Sometimes 'recordingUrl' might be used
+        if not link_to_record:
+            link_to_record = get_binotel_field(payload, "recordingUrl")
+
         # Determine call type (inbound/outbound)
         # Check 'direction' (incoming/outgoing) OR 'callType' (0=inbound, 1=outbound)
-        direction_raw = payload.get("direction", "")
-        call_type_raw = str(payload.get("callType", ""))
+        # Note: In form data, these might also be nested or flat.
+        direction_raw = payload.get("direction", "") 
+        call_type_value = get_binotel_field(payload, "callType")
         
-        if direction_raw == "outgoing" or call_type_raw == "1":
+        call_type = "inbound" # Default
+        if direction_raw == "outgoing" or str(call_type_value) == "1":
             call_type = "outbound"
-        else:
-            call_type = "inbound"
 
         # Correct mapping of status
         # Binotel 'disposition' often holds values like 'ANSWER', 'NO ANSWER', 'BUSY'
-        # User wants "completed" or "missed".
-        disposition = payload.get("disposition", "").upper()
-        # 'billsec' > 0 usually implies completed for billing purposes, but 'ANSWER' is safer.
-        status = "completed" if disposition == "ANSWER" or (payload.get("billsec", 0) and int(payload.get("billsec", 0)) > 0) else "missed"
+        disposition_upper = str(disposition).upper() if disposition else ""
+        
+        status = "missed" # Default
+        # CHECK logic: if disposition is ANSWER or billsec > 0
+        if disposition_upper == "ANSWER":
+             status = "completed"
+        elif billsec and str(billsec).isdigit() and int(billsec) > 0:
+             status = "completed"
+        
+        # Russian/Cyrillic checks if needed (example had 'ОТВЕТ')
+        if "ОТВЕТ" in disposition_upper:
+            status = "completed"
 
         # Transform
         hde_payload = {
-            "uuid": payload.get("generalCallID"),
+            "uuid": general_call_id,
             "type": call_type,
-            "phone": payload.get("externalNumber"),
-            "extension": payload.get("internalNumber"),
+            "phone": external_number,
+            "extension": internal_number,
             "status": status,
-            "duration": payload.get("billsec"),
-            "recording_url": payload.get("linkToCallRecordInMyBusiness") or payload.get("recordingUrl") or "",
-            "timestamp": payload.get("startTime")
+            "duration": billsec,
+            "recording_url": link_to_record or "",
+            "timestamp": start_time
         }
         
         # Add transformation debugging info
