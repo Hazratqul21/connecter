@@ -138,12 +138,14 @@ async def webhook_handler(request: Request):
             link_to_record = get_binotel_field(payload, "recordingUrl")
 
         # Determine call type (inbound/outbound)
+        # Check 'direction' (incoming/outgoing) OR 'callType' (0=inbound, 1=outbound)
+        # Note: In form data, these might also be nested or flat.
         direction_raw = payload.get("direction", "") 
         call_type_value = get_binotel_field(payload, "callType")
         
-        call_type = "inbound" # Default
+        call_type = "incoming" # Default (HDE expects 'incoming')
         if direction_raw == "outgoing" or str(call_type_value) == "1":
-            call_type = "outbound"
+            call_type = "outgoing" # (HDE expects 'outgoing')
 
         # Correct mapping of status
         disposition_upper = str(disposition).upper() if disposition else ""
