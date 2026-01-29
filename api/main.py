@@ -140,8 +140,35 @@ async def webhook_handler(request: Request):
         if not general_call_id or general_call_id == "unknown_id":
              general_call_id = get_binotel_field(payload, "callID")
 
+        # Robust Phone Number Extraction
+        # Binotel sometimes uses different keys depending on call flow (srcNumber/dstNumber)
         external_number = get_binotel_field(payload, "externalNumber")
         internal_number = get_binotel_field(payload, "internalNumber")
+        
+        # Determine call type first to help with number logic
+        direction_val = get_binotel_field(payload, "direction") # Use helper!
+        call_type_val = get_binotel_field(payload, "callType")
+        
+        call_type = "incoming" # Default
+        if str(direction_val) == "outgoing" or str(call_type_val) == "1":
+            call_type = "outgoing"
+
+        # Fallbacks for numbers if standard keys are missing
+        if not external_number:
+            if call_type == "outgoing":
+                 # For outgoing: dst is client, src is employee
+                 external_number = get_binotel_field(payload, "dstNumber")
+                 if not internal_number: internal_number = get_binotel_field(payload, "srcNumber")
+            else:
+                 # For incoming: src is client, dst is employee
+                 external_number = get_binotel_field(payload, "srcNumber")
+                 if not internal_number: internal_number = get_binotel_field(payload, "dstNumber")
+        
+        # Cleanup numbers (strip spaces, etc)
+        if external_number: external_number = str(external_number).strip()
+        if internal_number: internal_number = str(internal_number).strip()
+
+        # 'billsec' is duration
         billsec = get_binotel_field(payload, "billsec")
         start_time_raw = get_binotel_field(payload, "startTime")
         disposition = get_binotel_field(payload, "disposition")
@@ -150,16 +177,6 @@ async def webhook_handler(request: Request):
         link_to_record = get_binotel_field(payload, "linkToCallRecordInMyBusiness")
         if not link_to_record:
             link_to_record = get_binotel_field(payload, "recordingUrl")
-
-        # Determine call type (inbound/outbound)
-        # Check 'direction' (incoming/outgoing) OR 'callType' (0=inbound, 1=outbound)
-        # Note: In form data, these might also be nested or flat.
-        direction_raw = payload.get("direction", "") 
-        call_type_value = get_binotel_field(payload, "callType")
-        
-        call_type = "incoming" # Default (HDE expects 'incoming')
-        if direction_raw == "outgoing" or str(call_type_value) == "1":
-            call_type = "outgoing" # (HDE expects 'outgoing')
 
         # Correct mapping of status
         disposition_upper = str(disposition).upper() if disposition else ""
@@ -222,11 +239,11 @@ async def webhook_handler(request: Request):
         last_webhook_payload["hde_response_code"] = response.status_code
         last_webhook_payload["hde_response_body"] = response.text
 
-        return {"status": "processed", "forwarded_to_hde": True, "hde_status": response.status_code, "hde_res": response.text}
+        return {"status": "success"}
 
     except Exception as e:
         logger.error(f"Error processing webhook: {str(e)}", exc_info=True)
-        return JSONResponse(status_code=500, content={"detail": "Internal Server Error", "error": str(e)})
+        return JSONResponse(status_code=500, content={"status": "error", "message": str(e)})
 
 @app.get("/simulate", response_class=HTMLResponse)
 async def simulate_call():
