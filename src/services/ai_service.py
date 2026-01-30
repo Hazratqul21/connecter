@@ -83,8 +83,8 @@ async def process_call_intelligence(call_id: str, audio_url: str):
             }
             
             # Upsert into enrichment table
-            # Note: You might need to adjust table name based on your schema
-            # supabase.table("call_enrichments").upsert(enrichment_data).execute()
+            # Upsert into enrichment table
+            supabase.table("call_enrichments").upsert(enrichment_data).execute()
             logger.info("Saved analysis to Supabase.")
             
     except Exception as e:
