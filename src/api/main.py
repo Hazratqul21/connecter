@@ -99,6 +99,26 @@ async def webhook_handler(request: Request, background_tasks: BackgroundTasks):
         else:
             logger.warning("No recording URL found, skipping AI analysis")
 
+        # 5. Run Data Enrichment (Metadata)
+        # We construct a call_data dict similar to what enrichment expects
+        call_summary_data = {
+            "uuid": general_call_id,
+            "direction": call_type,
+            "status": status,
+            "phone": external_number,
+            "extension": internal_number,
+            "duration": duration_int,
+            "recording_url": final_recording_url
+        }
+        
+        # Run enrichment as a background task to not block the webhook response
+        from src.services.enrichment_service import enrichment_service
+        background_tasks.add_task(
+            enrichment_service.enrich_call_record,
+            call_data=call_summary_data,
+            binotel_payload=payload
+        )
+
         return {"status": "success", "message": "Processing in background"}
 
     except Exception as e:
