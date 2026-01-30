@@ -69,11 +69,19 @@ async def process_call_intelligence(call_id: str, audio_url: str):
         analysis_json = json.loads(chat_response.choices[0].message.content)
         
         # 4. Save to Supabase
-        # We need to ensure we have a record in `calls` first or use `call_enrichments`
+        # We need to resolve the internal UUID from the calls table using the Binotel ID
         supabase = get_supabase()
         if supabase:
+            # Lookup UUID
+            call_record = supabase.table("calls").select("id").eq("binotel_uuid", call_id).execute()
+            if not call_record.data:
+                logger.error(f"Call record not found for binotel_uuid {call_id}. Cannot save enrichment.")
+                return
+            
+            internal_uuid = call_record.data[0]['id']
+
             enrichment_data = {
-                "call_id": call_id, # Assuming UUID match, or we might need binotel_uuid logic
+                "call_id": internal_uuid, 
                 "transcription_text": transcript_text,
                 "summary": analysis_json.get("summary"),
                 "sentiment_score": analysis_json.get("sentiment_score"),

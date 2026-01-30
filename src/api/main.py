@@ -88,19 +88,8 @@ async def webhook_handler(request: Request, background_tasks: BackgroundTasks):
         # ... (Existing HDE Logic omitted for brevity, assuming it works) ...
         # For this refactor, I am focusing on adding the Background Task
         
-        # 4. Trigger AI Background Task (Vercel-Compatible)
-        if recording_url:
-            logger.info(f"Queuing AI Analysis for {general_call_id}")
-            background_tasks.add_task(
-                process_call_intelligence, 
-                call_id=general_call_id, 
-                audio_url=recording_url
-            )
-        else:
-            logger.warning("No recording URL found, skipping AI analysis")
-
-        # 5. Run Data Enrichment (Metadata)
-        # We construct a call_data dict similar to what enrichment expects
+        # 4. Unified Background Processing (Orchestrator)
+        # We construct a call_data dict
         call_summary_data = {
             "uuid": general_call_id,
             "direction": call_type,
@@ -111,13 +100,12 @@ async def webhook_handler(request: Request, background_tasks: BackgroundTasks):
             "recording_url": final_recording_url
         }
         
-        # Run enrichment as a background task to not block the webhook response
-        from src.services.enrichment_service import enrichment_service
+        from src.services.orchestrator import orchestrate_call_processing
         background_tasks.add_task(
-            enrichment_service.enrich_call_record,
-            call_data=call_summary_data,
+            orchestrate_call_processing,
+            call_summary_data=call_summary_data,
             binotel_payload=payload
-        )
+        ) # Single task ensures sequential execution
 
         return {"status": "success", "message": "Processing in background"}
 
