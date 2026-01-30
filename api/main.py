@@ -168,15 +168,27 @@ async def webhook_handler(request: Request):
         if external_number: external_number = str(external_number).strip()
         if internal_number: internal_number = str(internal_number).strip()
 
-        # 'billsec' is duration
+        # 'billsec' is duration - ensure it's an integer
         billsec = get_binotel_field(payload, "billsec")
+        duration_int = 0
+        try:
+             if billsec:
+                 duration_int = int(float(billsec))
+        except (ValueError, TypeError):
+             duration_int = 0
+
         start_time_raw = get_binotel_field(payload, "startTime")
         disposition = get_binotel_field(payload, "disposition")
         
-        # Link to record
+        # Link to record: PRIORITIZE DIRECT URL (recordingUrl) FOR AUDIO PLAYER
+        recording_url = get_binotel_field(payload, "recordingUrl")
         link_to_record = get_binotel_field(payload, "linkToCallRecordInMyBusiness")
-        if not link_to_record:
-            link_to_record = get_binotel_field(payload, "recordingUrl")
+        
+        # If recordingUrl is missing/empty, fallback to linkToCallRecordInMyBusiness
+        final_recording_url = recording_url if recording_url else link_to_record
+        
+        if not final_recording_url:
+             final_recording_url = ""
 
         # Correct mapping of status
         disposition_upper = str(disposition).upper() if disposition else ""
@@ -184,7 +196,7 @@ async def webhook_handler(request: Request):
         status = "missed" # Default
         if disposition_upper == "ANSWER":
              status = "completed"
-        elif billsec and str(billsec).isdigit() and int(billsec) > 0:
+        elif duration_int > 0:
              status = "completed"
         if "ОТВЕТ" in disposition_upper:
             status = "completed"
@@ -217,8 +229,8 @@ async def webhook_handler(request: Request):
             "phone": external_number,
             "extension": internal_number,
             "status": status,
-            "duration": billsec,
-            "recording_url": link_to_record or "",
+            "duration": duration_int,
+            "recording_url": final_recording_url,
             "timestamp": formatted_start_time
         }
         
@@ -261,8 +273,8 @@ async def simulate_call():
             "phone": "998901234567", # Test phone
             "extension": "903", # Using 903 (Hasan)
             "status": "completed",
-            "duration": "120",
-            "recording_url": "https://example.com/test_record.mp3",
+            "duration": 120, # Integer
+            "recording_url": "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3", # Real MP3 for testing
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         
