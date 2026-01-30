@@ -3,3 +3,7 @@ uvicorn
 requests
 python-multipart
 pytz
+pydantic-settings
+supabase
+openai
+httpx
