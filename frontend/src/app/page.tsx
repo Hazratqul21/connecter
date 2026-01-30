@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Users, Phone, PhoneCall, CheckCircle, XCircle, Clock, Activity } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { motion } from "framer-motion"
@@ -155,8 +154,8 @@ export default function Dashboard() {
                   <p className="text-xs text-gray-500">{new Date(call.started_at).toLocaleTimeString()}</p>
                 </div>
                 <div className={`text-xs px-2 py-1 rounded ${call.status === 'completed' ? 'bg-green-500/20 text-green-400' :
-                    call.status === 'missed' ? 'bg-red-500/20 text-red-400' :
-                      'bg-yellow-500/20 text-yellow-400'
+                  call.status === 'missed' ? 'bg-red-500/20 text-red-400' :
+                    'bg-yellow-500/20 text-yellow-400'
                   }`}>
                   {call.status}
                 </div>
