@@ -71,10 +71,28 @@ async def webhook_handler(request: Request, background_tasks: BackgroundTasks):
             "payload": payload
         }
         
-        # 2. Filter Events
+        # 1.5 LOGGING (Debug Mode)
+        # Save raw payload to Supabase for debugging
+        from src.core.database import get_supabase
+        supabase = get_supabase()
+        if supabase:
+            try:
+                supabase.table("webhook_logs").insert({
+                    "payload": payload,
+                    "request_type": payload.get("requestType", "unknown")
+                }).execute()
+            except Exception as log_err:
+                logger.error(f"Failed to log webhook: {log_err}")
+
+        # 2. Filter Events (Relaxed)
         request_type = payload.get("requestType")
-        if request_type != "apiCallCompleted":
-            return {"status": "ignored", "reason": "Not apiCallCompleted"}
+        # Accept both API calls and regular calls
+        valid_events = ["apiCallCompleted", "callCompleted", "incomingCallCompleted", "outgoingCallCompleted"]
+        
+        if request_type not in valid_events:
+            # Check if it has 'generalCallID' at least, maybe treat as valid?
+            if not payload.get("generalCallID"):
+                return {"status": "ignored", "reason": f"Ignored event type: {request_type}"}
 
         # 3. Extract Data
         def get_field(data, key):
@@ -92,12 +110,12 @@ async def webhook_handler(request: Request, background_tasks: BackgroundTasks):
         # We construct a call_data dict
         call_summary_data = {
             "uuid": general_call_id,
-            "direction": call_type,
-            "status": status,
-            "phone": external_number,
-            "extension": internal_number,
-            "duration": duration_int,
-            "recording_url": final_recording_url
+            "direction": get_field(payload, "direction") or "incoming", # Fallback
+            "status": get_field(payload, "status") or "completed", # Fallback
+            "phone": get_field(payload, "externalNumber") or "unknown",
+            "extension": get_field(payload, "internalNumber") or "",
+            "duration": int(get_field(payload, "billsec") or 0),
+            "recording_url": recording_url
         }
         
         from src.services.orchestrator import orchestrate_call_processing
