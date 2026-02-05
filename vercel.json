@@ -1,5 +1,8 @@
 {
   "version": 2,
+  "env": {
+    "PYTHONPATH": "backend"
+  },
   "builds": [
     {
       "src": "backend/src/api/main.py",
