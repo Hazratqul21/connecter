@@ -6,7 +6,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import requests
 import datetime
-import pytz
 from typing import Dict, Any
 from functools import lru_cache
 
@@ -40,8 +39,10 @@ last_transaction: Dict[str, Any] = {
 
 # --- Utilities ---
 def get_tashkent_time() -> str:
-    tz = pytz.timezone('Asia/Tashkent')
-    return datetime.datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+    # Manual Tashkent Time (UTC+5) to avoid pytz dependency
+    utc_now = datetime.datetime.utcnow()
+    tashkent_time = utc_now + datetime.timedelta(hours=5)
+    return tashkent_time.strftime("%Y-%m-%d %H:%M:%S")
 
 def transform_binotel_to_hde(binotel_data: Dict[str, Any]) -> Dict[str, Any]:
     """Transforms Binotel 'apiCallCompleted' data to HelpDeskEddy format."""
