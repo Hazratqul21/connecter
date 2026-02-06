@@ -10,7 +10,7 @@ import json
 import pytz
 from typing import Optional, Dict, Any
 
-from src.core.config import settings
+from backend.src.core.config import settings
 
 app = FastAPI(title="Connecter Middleware", version="3.0.0")
 
